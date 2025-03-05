@@ -1,0 +1,4 @@
+usuario: hola como estas
+respuesta: hola, querido. manejamos todas las referencias de lociones ¿cual te interesa?
+usuario: la jean paul gaultier
+respuesta:  todas nuestras lociones tienen un precio fijo de cien mil pesos.

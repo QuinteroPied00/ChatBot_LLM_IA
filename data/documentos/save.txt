@@ -1,0 +1,133 @@
+embeddings.py
+
+--
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.document_loaders import TextLoader
+from modules.database import get_vectorstore
+from modules.logger import logger
+
+def load_and_store_documents(file_content, file_name):
+    """
+    Carga documentos subidos a través de Streamlit, genera embeddings y los almacena en ChromaDB.
+    """
+    try:
+        with open(f"data/documentos/{file_name}", "wb") as f:
+            f.write(file_content.getbuffer())
+        
+        loader = TextLoader(f"data/documentos/{file_name}")
+        documents = loader.load()
+        
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        docs = text_splitter.split_documents(documents)
+        
+        vectorstore = get_vectorstore()
+        if vectorstore:
+            vectorstore.add_documents(docs)
+            logger.info(f"Documentos del archivo {file_name} indexados correctamente en ChromaDB.")
+        else:
+            logger.warning("No se pudo indexar el documento debido a un problema con la base de datos vectorial.")
+    except Exception as e:
+        logger.error(f"Error al cargar y almacenar documentos: {e}")
+
+--
+
+app.py
+
+--
+
+import streamlit as st
+from modules.chatbot import chat_with_llama
+from modules.embeddings import load_and_store_documents
+from modules.logger import logger
+
+st.set_page_config(page_title="Chat con LLaMA y Base de Datos", layout="wide")
+st.title("🤖 Chat con LLaMA y Base de Datos Vectorial")
+
+st.sidebar.header("Carga de Documentos")
+uploaded_file = st.sidebar.file_uploader("Sube un archivo de texto o datos", type=["txt", "csv", "json"])
+if uploaded_file is not None:
+    ruta_guardado = f"data/documentos/{uploaded_file.name}"
+    with open(ruta_guardado, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    load_and_store_documents(uploaded_file, uploaded_file.name)
+    logger.info(f"Archivo {uploaded_file.name} cargado e indexado correctamente.")
+    st.sidebar.success(f"Archivo {uploaded_file.name} cargado correctamente y agregado al contexto.")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+user_input = st.chat_input("Escribe tu mensaje...")
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+    
+    response = chat_with_llama(user_input)
+    
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    with st.chat_message("assistant"):
+        st.markdown(response)
+
+--
+
+chatbot.py
+--
+
+from langchain_ollama import OllamaLLM
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationSummaryBufferMemory
+from modules.database import get_vectorstore
+from modules.logger import logger
+import json
+import os
+
+HISTORY_FILE = "data/historial/search_history.json"
+
+def ensure_history_file():
+    """
+    Verifica la existencia del archivo de historial y lo crea si no existe.
+    """
+    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+    if not os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "w") as f:
+            json.dump([], f)
+
+def save_search(query, response):
+    """
+    Guarda una consulta y su respuesta en el historial de búsquedas.
+    """
+    ensure_history_file()
+    with open(HISTORY_FILE, "r+") as f:
+        history = json.load(f)
+        history.append({"query": query, "response": response})
+        f.seek(0)
+        json.dump(history, f, indent=4)
+
+def chat_with_llama(user_input):
+    """
+    Genera una respuesta a partir de una consulta utilizando el modelo LLaMA.
+    """
+    try:
+        llm = OllamaLLM(model="deepseek-r1:1.5b")
+        memory = ConversationSummaryBufferMemory(llm=llm, memory_key="chat_history", return_messages=True)
+        vectorstore = get_vectorstore()
+        retriever = vectorstore.as_retriever() if vectorstore else None
+        retrieval_chain = ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            memory=memory
+        )
+        
+        response = retrieval_chain.run(user_input) if retrieval_chain else "Error: No se pudo generar una respuesta debido a problemas con el contexto."
+        save_search(user_input, response)
+        return response
+    except Exception as e:
+        logger.error(f"Error en la generación de respuesta del chatbot: {e}")
+        return "Lo siento, hubo un error al procesar tu solicitud."
+
+--

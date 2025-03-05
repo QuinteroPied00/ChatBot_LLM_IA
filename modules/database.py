@@ -1,16 +1,20 @@
 import chromadb
-from modules.logger import logger
-from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from modules.logger import logger
+
+
+# Variable global para almacenar el modelo
+embeddings = None
 
 def get_vectorstore():
-    """
-    Inicializa y devuelve un almacén de vectores utilizando ChromaDB.
-    Utiliza HuggingFaceEmbeddings para generar los embeddings de los documentos.
-    """
-    try:
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        return Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
-    except Exception as e:
-        logger.error(f"Error al conectar con la base de datos vectorial: {e}")
-        return None
+    global embeddings
+    if embeddings is None:
+        try:
+            logger.info("Cargando modelo de embeddings...")  # Solo carga el modelo la primera vez
+            embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            logger.info("Base de datos vectorial inicializada correctamente.")
+        except Exception as e:
+            logger.error(f"Error al cargar el modelo de embeddings: {e}")
+            return None
+    return Chroma(persist_directory="./chroma_db", embedding_function=embeddings)

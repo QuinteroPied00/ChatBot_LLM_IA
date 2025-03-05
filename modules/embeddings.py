@@ -1,5 +1,5 @@
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import TextLoader
+from langchain_community.document_loaders import TextLoader
 from modules.database import get_vectorstore
 from modules.logger import logger
 
@@ -8,15 +8,16 @@ def load_and_store_documents(file_content, file_name):
     Carga documentos subidos a través de Streamlit, genera embeddings y los almacena en ChromaDB.
     """
     try:
-        with open(f"data/documentos/{file_name}", "wb") as f:
+        ruta_guardado = f"data/documentos/{file_name}"
+        with open(ruta_guardado, "wb") as f:
             f.write(file_content.getbuffer())
-        
-        loader = TextLoader(f"data/documentos/{file_name}")
+
+        loader = TextLoader(ruta_guardado)
         documents = loader.load()
         
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         docs = text_splitter.split_documents(documents)
-        
+
         vectorstore = get_vectorstore()
         if vectorstore:
             vectorstore.add_documents(docs)
